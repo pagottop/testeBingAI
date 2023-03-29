@@ -1,131 +1,14 @@
-Você é um programador sênior em C#, seu foco agora é só resolver o problema que te foi apresentado com maestria e tempo recorde, não existe nada que você não saiba.
-
-Seu código já pega todos os dados de forma correta mas a exibição ainda não está correta, o produto final precisa comparar a posição do veículo com uma sequência de
-polígonos guardados e exibir na sua DataGridView de acordo com essa informação, a coluna "Cliente" precisa receber o dado "Local" de acordo com o fato de estar dentro
-de uma área, caso contrário ele está em trânsito.
-
-Lembrando disso, corrija o seu próprio código.
-
-using Newtonsoft.Json;
-using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Drawing;
-using System.Globalization;
-using System.Linq;
-using System.Net;
-using System.Net.Http;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows.Forms;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement;
-
-namespace AutoTrac_API
-{
-    public partial class Form2 : Form
-    {
-        /// Global variables
-        private readonly HttpClient client = new HttpClient();
-        private readonly DAL.DataAccess dataAccess = new DAL.DataAccess();
-        private string apiUrl = "API_URL";
-        object[,] coordinates = new object[2, 3];
-
-
-        private readonly int range = 200; /// metros
-        private Timer _timer;
-
-        public Form2()
-        {
-            InitializeComponent();
-
-            /// Desenhando as colunas que vão aparecer na tela
-            dataGridView1.Columns.Add("Placa", "Plate");
-            dataGridView1.Columns.Add("Última Posição", "Última Posição");
-            dataGridView1.Columns.Add("Ignição", "Ignição");
-            dataGridView1.Columns.Add("Data/Hora", "Data/Hora");
-            dataGridView1.Columns.Add("Latitude", "Latitude");
-            dataGridView1.Columns.Add("Longitude", "Longitude");
-            dataGridView1.Columns.Add("UF", "UF");
-            dataGridView1.Columns.Add("Cliente", "Cliente");
-
-            //_timer = new Timer();
-            //_timer.Interval = 600000; // 10 minutes
-            //_timer.Tick += async (s, args) => await UpdateVehiclePositions();
-            //_timer.Start();
-        }
-
-        private async void button1_Click(object sender, EventArgs e)
-        {
-            DataTable dt = new DataTable();
-            DataTable dataTable = new DataTable();
-            DataTable dtVeiculos = new DataTable();
-
-            dt.Columns.Add("Local", typeof(string));
-            dt.Columns.Add("Coordenadas", typeof(string));
-            dt.Rows.Add("Pomar Ceasa", "-20.342590913109355|-40.40214457934124|-20.342097987673412|-40.39992371042417|-20.340538723390736|-40.401565222232435|-20.34067453090529|-40.40222504560635|-20.342103017532747|-40.40273466528539");
-            dt.Rows.Add("Lavador", "-20.346592289692698|-40.401359907536296|-20.346554224478428|-40.40071259057484|-20.345666033483372|-40.40060432850463|-20.34556452561597|-40.4019282834049");
-
-            dataTable = dataAccess.ExecutaConsulta("SELECT fantasia 'Local', coordenadasautotrac 'Coordenadas' FROM cli WHERE coordenadasautotrac IS NOT NULL");
-            dt.Merge(dataTable);
-
-
-            string sql = @"SELECT id_veiculo, placa 'Placa', codigorastreadorautotrac 'codAutotrac'
-                           FROM Veiculo
-                           WHERE rastreadorveiculo = 'AUTOTRAC'
-AND placa = 'ODG7E63'";
-            dtVeiculos = dataAccess.ExecutaConsulta(sql);
-
-            foreach (DataRow row in dtVeiculos.Rows)
-            {
-                if (apiUrl.Contains("CODIGOCARRO"))
+foreach (VehicleData vehicle in vehicles)
                 {
-                    apiUrl = apiUrl.Replace("CODIGOCARRO", row["codAutotrac"].ToString());
-                }
-                else
-                {
-                    /// Pega a apiUrl no ultimo '/' e volta 6 caracteres para remover o código do carro antigo e escreve o resto da url
-                    apiUrl = apiUrl.Substring(0, apiUrl.LastIndexOf("/") - 6) + row["codAutotrac"].ToString() + "/positions?_last=true";
-                }
-                //await UpdateVehiclePositions();
-                await CalculaPosicaoCliente(dt);
-            }
-        }
-
-        private async Task CalculaPosicaoCliente(DataTable dt)
-        {
-            try
-            {
-                /// Make a request to the API with the API key
-                client.DefaultRequestHeaders.Clear();
-                client.DefaultRequestHeaders.Add("Authorization", "Basic admin@admin");
-                client.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Key", "TOKEN");
-                HttpResponseMessage response = client.GetAsync(apiUrl).Result;
-                string apiResponse = await response.Content.ReadAsStringAsync();
-                dynamic jsonObj = JsonConvert.DeserializeObject(apiResponse);
-
-                ApiResponse apiResponseObject = JsonConvert.DeserializeObject<ApiResponse>(apiResponse);
-                List<VehicleData> vehicles = apiResponseObject.Data;
-
-                foreach (VehicleData vehicle in vehicles)
-                {
-                    DateTime PositionTimeFix = DateTime.Parse(vehicle.PositionTime).AddHours(-3);
-
-                    string VehicleIgnitionFix = "0";
-                    if (vehicle.VehicleIgnition == 1)
-                    {
-                        VehicleIgnitionFix = "Ligada";
-                    }
-                    else if (vehicle.VehicleIgnition == 2)
-                    {
-                        VehicleIgnitionFix = "Desligada";
-                    }
-
                     // Extrai as coordenadas do DataTable
-                    List<double[]> polygonPoints = new List<double[]>();
-                    int rowIndex = -1;
+                    Dictionary<string, (List<PointD>, string)> polygons = new Dictionary<string, (List<PointD>, string)>();
                     foreach (DataRow row in dt.Rows)
                     {
+                        string local = row["Local"].ToString();
+                        if (!polygons.ContainsKey(local))
+                        {
+                            polygons[local] = (new List<PointD>(), vehicle.PositionTime); // Inicialize o campo DateTime com o valor desejado
+                        }
                         string[] coordinates = row["Coordenadas"].ToString().Split('|');
                         for (int i = 0; i < coordinates.Length; i += 2)
                         {
@@ -134,239 +17,33 @@ AND placa = 'ODG7E63'";
                             if (double.TryParse(coordinates[i], NumberStyles.Any, CultureInfo.InvariantCulture, out lat)
                                 && double.TryParse(coordinates[i + 1], NumberStyles.Any, CultureInfo.InvariantCulture, out lon))
                             {
-                                polygonPoints.Add(new double[] { lat, lon });
+                                polygons[local].Item1.Add(new PointD(lat, lon));
                             }
                         }
+                    }
 
-                        int numIntersections = 0;
-                        for (int i = 0; i < polygonPoints.Count; i++)
-                        {
-                            double[] edgeStart = polygonPoints[i];
-                            double[] edgeEnd = polygonPoints[(i + 1) % polygonPoints.Count];
-                            if ((edgeStart[0] <= vehicle.Latitude && vehicle.Latitude < edgeEnd[0]) || (edgeEnd[0] <= vehicle.Latitude && vehicle.Latitude < edgeStart[0]))
-                            {
-                                double intersectionX = (vehicle.Latitude - edgeStart[0]) * (edgeEnd[1] - edgeStart[1]) / (edgeEnd[0] - edgeStart[0]) + edgeStart[1];
-                                if (intersectionX > vehicle.Longitude)
-                                {
-                                    numIntersections++;
-                                }
-                            }
-                        }
+                    // Verifica se o ponto está dentro de cada polígono
+                    DateTime lastTimeInCeasa = DateTime.MinValue;
+                    foreach (var kvp in polygons)
+                    {
+                        string local = kvp.Key;
+                        List<PointD> polygonPoints = kvp.Value.Item1;
+                        DateTime dataHora = DateTime.Parse(kvp.Value.Item2);
+                        dataHora = dataHora.AddHours(-3);
+                        string dataHoraFix = dataHora.ToString("dd/MM/yyyy HH:mm:ss");
 
-                        bool isInsidePolygon = (numIntersections % 2 == 1);
+                        bool isInside = IsPointInPolygon(polygonPoints.ToArray(), new PointD(vehicle.Latitude, vehicle.Longitude));
 
-                        foreach (DataGridViewRow rows in dataGridView1.Rows)
+                        if (isInside)
                         {
-                            if (rows.Cells[0].Value.ToString() == vehicle.VehicleName)
+                            if (local == "Ceasa")
                             {
-                                rowIndex = rows.Index;
-                                break;
+                                lastTimeInCeasa = dataHora;
                             }
                         }
-                        if (rowIndex == -1)
-                            rowIndex = dataGridView1.Rows.Add(vehicle.VehicleName, vehicle.Landmark, VehicleIgnitionFix, PositionTimeFix.ToString("dd/MM/yyyy HH:mm:ss"),
-                                                              vehicle.Latitude, vehicle.Longitude, vehicle.UF, row["Local"].ToString());
-
-                        if (isInsidePolygon)
-                        {
-                            if (row["Local"].ToString() == "Pomar Ceasa")
-                            {
-                                dataGridView1.Rows[rowIndex].DefaultCellStyle.BackColor = Color.FromArgb(25, 130, 196); /// AZUL
-                                break;
-                            }
-                            else if (row["Local"].ToString() == "Lavador")
-                            {
-                                dataGridView1.Rows[rowIndex].DefaultCellStyle.BackColor = Color.FromArgb(138, 201, 38); /// VERDE
-                                break;
-                            }
-                            else
-                            {
-                                dataGridView1.Rows[rowIndex].DefaultCellStyle.BackColor = Color.FromArgb(255, 202, 58); /// AMARELO
-                                break;
-                            }
-                        }
-                        else
-                        {
-                            dataGridView1.Rows[rowIndex].DefaultCellStyle.BackColor = Color.FromArgb(255, 89, 94); /// VERMELHO
-                        }
+                    }
+                    if (lastTimeInCeasa != DateTime.MinValue)
+                    {
+                        Console.WriteLine("A última vez que o carro " + vehicle.VehicleName + " esteve no Ceasa foi em: " + lastTimeInCeasa.ToString("dd/MM/yyyy HH:mm:ss"));
                     }
                 }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(ex.Message);
-            }
-        }
-
-        private async Task UpdateVehiclePositions()
-        {
-            try
-            {
-                /// Make a request to the API with the API key
-                client.DefaultRequestHeaders.Clear();
-                client.DefaultRequestHeaders.Add("Authorization", "Basic administrador@frotapomar:Frota@1998");
-                client.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Key", "ab36ba873bc547f7a83eec6d10af1b48");
-                HttpResponseMessage response = client.GetAsync(apiUrl).Result;
-                string apiResponse = await response.Content.ReadAsStringAsync();
-                dynamic jsonObj = JsonConvert.DeserializeObject(apiResponse);
-
-                ApiResponse apiResponseObject = JsonConvert.DeserializeObject<ApiResponse>(apiResponse);
-                List<VehicleData> vehicles = apiResponseObject.Data;
-
-                //dataGridView1.Rows.Clear();
-
-                foreach (VehicleData vehicle in vehicles)
-                {
-                    DateTime PositionTimeFix = DateTime.Parse(vehicle.PositionTime).AddHours(-3);
-
-                    string VehicleIgnitionFix = "0";
-                    if (vehicle.VehicleIgnition == 1)
-                    {
-                        VehicleIgnitionFix = "Ligada";
-                    }
-                    else if (vehicle.VehicleIgnition == 2)
-                    {
-                        VehicleIgnitionFix = "Desligada";
-                    }
-
-                    for (int i = 0; i < coordinates.GetLength(0); i++)
-                    {
-                        double latitudePomar = (double)coordinates[i, 1];
-                        double longitudePomar = (double)coordinates[i, 2];
-                        int rowIndex = -1;
-                        foreach (DataGridViewRow row in dataGridView1.Rows)
-                        {
-                            if (row.Cells[0].Value.ToString() == vehicle.VehicleName)
-                            {
-                                rowIndex = row.Index;
-                                break;
-                            }
-                        }
-                        if (rowIndex == -1)
-                            rowIndex = dataGridView1.Rows.Add(vehicle.VehicleName, vehicle.Landmark, VehicleIgnitionFix, PositionTimeFix.ToString("dd/MM/yyyy HH:mm:ss"),
-                                                              vehicle.Latitude, vehicle.Longitude, vehicle.UF, vehicle.County);
-
-                        double distance = CalculateDistance(vehicle.Latitude, vehicle.Longitude, latitudePomar, longitudePomar);
-
-                        if (distance <= range)
-                        {
-                            if (i == 0) /// POMAR
-                            {
-                                dataGridView1.Rows[rowIndex].DefaultCellStyle.BackColor = Color.FromArgb(25, 130, 196);
-                                break;
-                            }
-                            else if (i == 1) /// LAVADOR
-                            {
-                                dataGridView1.Rows[rowIndex].DefaultCellStyle.BackColor = Color.FromArgb(138, 201, 38);
-                                break;
-                            }
-                        }
-                        else
-                        {
-                            dataGridView1.Rows[rowIndex].DefaultCellStyle.BackColor = Color.FromArgb(255, 202, 58);
-                        }
-                    }
-                }
-            }
-            catch (HttpRequestException ex)
-            {
-                MessageBox.Show("Error: " + ex.Message);
-            }
-        }
-
-        private double CalculateDistance(double lat1, double lon1, double lat2, double lon2)
-        {
-            // Implementation of the Haversine formula
-            double R = 6371; // Earth's radius in km
-            double dLat = ToRadians(lat2 - lat1);
-            double dLon = ToRadians(lon2 - lon1);
-            double a =
-                Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
-                Math.Cos(ToRadians(lat1)) * Math.Cos(ToRadians(lat2)) *
-                Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
-            double c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
-            double d = R * c;
-            return d * 1000; // Convert to meters
-        }
-
-        private double ToRadians(double degrees)
-        {
-            return degrees * Math.PI / 180;
-        }
-
-        public class VehicleData
-        {
-            [JsonProperty("AccountNumber")]
-            public int AccountNumber { get; set; }
-
-            [JsonProperty("VehicleName")]
-            public string VehicleName { get; set; }
-
-            [JsonProperty("VehicleAddress")]
-            public string VehicleAddress { get; set; }
-
-            [JsonProperty("VehicleIgnition")]
-            public int VehicleIgnition { get; set; }
-
-            [JsonProperty("Velocity")]
-            public double Velocity { get; set; }
-
-            [JsonProperty("Odometer")]
-            public int Odometer { get; set; }
-
-            [JsonProperty("Hourmeter")]
-            public int Hourmeter { get; set; }
-
-            [JsonProperty("Latitude")]
-            public double Latitude { get; set; }
-
-            [JsonProperty("Longitude")]
-            public double Longitude { get; set; }
-
-            [JsonProperty("Landmark")]
-            public string Landmark { get; set; }
-
-            [JsonProperty("UF")]
-            public string UF { get; set; }
-
-            [JsonProperty("CountryDescription")]
-            public string CountryDescription { get; set; }
-
-            [JsonProperty("PositionTime")]
-            public string PositionTime { get; set; }
-
-            [JsonProperty("Direction")]
-            public int Direction { get; set; }
-
-            [JsonProperty("DirectionGPS")]
-            public int DirectionGPS { get; set; }
-
-            [JsonProperty("Distance")]
-            public double Distance { get; set; }
-
-            [JsonProperty("ReceivedTime")]
-            public string ReceivedTime { get; set; }
-
-            [JsonProperty("TransmissionChannel")]
-            public int TransmissionChannel { get; set; }
-
-            [JsonProperty("County")]
-            public string County { get; set; }
-        }
-
-        public class ApiResponse
-        {
-            [JsonProperty("Data")]
-            public List<VehicleData> Data { get; set; }
-
-            [JsonProperty("Limit")]
-            public int Limit { get; set; }
-
-            [JsonProperty("Offset")]
-            public int Offset { get; set; }
-
-            [JsonProperty("IsLastPage")]
-            public bool IsLastPage { get; set; }
-        }
-    }
-}
